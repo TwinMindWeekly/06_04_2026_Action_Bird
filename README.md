@@ -2,7 +2,7 @@
 
 **Action Bird** là một phiên bản nâng cấp mạnh mẽ từ trò chơi Flappy Bird cổ điển, kết hợp với các yếu tố hành động, hệ thống kỹ năng và cơ chế RPG đơn giản. Trò chơi mang lại cảm giác kịch tính hơn với Laser, Chế độ khổng lồ và hệ thống Shop đa dạng.
 
-![Action Bird Logo](https://via.placeholder.com/800x200?text=Action+Bird+Game)
+![Action Bird Logo](assets/images/banner.png)
 
 ## ✨ Tính năng nổi bật
 
