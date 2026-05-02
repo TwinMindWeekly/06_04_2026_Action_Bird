@@ -94,6 +94,7 @@ def draw_ui(game):
                 pygame.draw.rect(game.screen, (40, 40, 40), (20, y_offset, 120, 12), border_radius=6)
                 pygame.draw.rect(game.screen, color, (22, y_offset + 2, 116 * remaining, 8), border_radius=4)
                 
+                type_surf = game.font.render(ptype, True, WHITE)
                 game.screen.blit(type_surf, (150, y_offset - 8))
                 y_offset += 30
         

@@ -139,40 +139,6 @@ class Game:
             self.asset_manager.play_sound('laser', self.combo_count)
             new_laser = Laser((self.bird.rect.right, self.bird.rect.centery))
             self.lasers.add(new_laser); self.all_sprites.add(new_laser)
-            
-            hit_tubes = pygame.sprite.spritecollide(new_laser, self.tubes, True)
-            hit_something = False
-            if hit_tubes:
-                self.asset_manager.stats['total_destroyed'] += len(hit_tubes)
-                hit_something = True
-                
-            missiles = [s for s in self.all_sprites if isinstance(s, Missile) and s.warning_timer <= 0]
-            hit_m = pygame.sprite.spritecollide(new_laser, pygame.sprite.Group(missiles), True)
-            if hit_m: hit_something = True
-
-            if getattr(self, 'boss_fight', False) and self.boss_entity in self.all_sprites:
-                if pygame.sprite.collide_rect(new_laser, self.boss_entity):
-                    hit_something = True
-                    if self.boss_entity.take_damage():
-                        self.boss_entity.kill(); self.boss_fight = False; self.score += 5
-                        self.asset_manager.stats['total_credits'] += 50
-                        if 'LASER' in self.active_powerups: del self.active_powerups['LASER']
-                        for _ in range(3):
-                            it = random.choice(['LASER', 'GHOST', 'SLOW', 'GIANT'])
-                            item = Item(self.boss_entity.rect.centerx + random.randint(-20, 20), self.boss_entity.rect.centery + random.randint(-20, 20), it)
-                            self.items.add(item); self.all_sprites.add(item)
-
-            if hit_something:
-                now = pygame.time.get_ticks()
-                if now - self.last_destruction_time < 2000: self.combo_count += 1
-                else: self.combo_count = 1
-                self.last_destruction_time = now; self.score += 1 * self.combo_count
-                if self.combo_count > 1:
-                    ft = FloatingText(self.bird.rect.right, self.bird.rect.top - 20, f"COMBO X{self.combo_count}", RED, self.medium_font)
-                    self.floating_texts.add(ft); self.all_sprites.add(ft)
-                self.asset_manager.play_sound('explosion', self.combo_count)
-                self.shake_timer = 20 # Shake on explosion
-                pygame.time.delay(30) 
 
     def run(self):
         running = True
@@ -284,6 +250,42 @@ class Game:
                     trail = TrailEffect(self.bird.rect.centerx, self.bird.rect.centery, self.bird.image)
                     self.trails.add(trail); self.all_sprites.add(trail)
                 self.trails.update(); self.lasers.update(self.bird.rect); self.floating_texts.update()
+                
+                # Continuous Laser Collisions
+                for laser in self.lasers:
+                    hit_something = False
+                    hit_t = pygame.sprite.spritecollide(laser, self.tubes, True)
+                    if hit_t:
+                        self.asset_manager.stats['total_destroyed'] += len(hit_t)
+                        hit_something = True
+                    
+                    ms = [s for s in self.all_sprites if isinstance(s, Missile) and s.warning_timer <= 0]
+                    hit_m = pygame.sprite.spritecollide(laser, pygame.sprite.Group(ms), True)
+                    if hit_m: hit_something = True
+                    
+                    if self.boss_fight and self.boss_entity:
+                        if pygame.sprite.collide_rect(laser, self.boss_entity):
+                            if not hasattr(laser, 'boss_hit_time') or now - laser.boss_hit_time > 500:
+                                laser.boss_hit_time = now
+                                hit_something = True
+                                if self.boss_entity.take_damage():
+                                    self.boss_entity.kill(); self.boss_fight = False; self.score += 5
+                                    self.asset_manager.stats['total_credits'] += 50
+                                    if 'LASER' in self.active_powerups: del self.active_powerups['LASER']
+                                    for _ in range(3):
+                                        it = random.choice(['LASER', 'GHOST', 'SLOW', 'GIANT'])
+                                        item = Item(self.boss_entity.rect.centerx + random.randint(-20, 20), self.boss_entity.rect.centery + random.randint(-20, 20), it)
+                                        self.items.add(item); self.all_sprites.add(item)
+                    
+                    if hit_something:
+                        if now - self.last_destruction_time < 2000: self.combo_count += 1
+                        else: self.combo_count = 1
+                        self.last_destruction_time = now; self.score += 1 * self.combo_count
+                        if self.combo_count > 1:
+                            ft = FloatingText(self.bird.rect.right, self.bird.rect.top - 20, f"COMBO X{self.combo_count}", RED, self.medium_font)
+                            self.floating_texts.add(ft); self.all_sprites.add(ft)
+                        self.asset_manager.play_sound('explosion', self.combo_count)
+                        self.shake_timer = 20
                 self.particles.update(cur_v); self.missiles.update(cur_v); self.energy_balls.update(cur_v)
                 if 'fire_aura' in self.asset_manager.stats.get('unlocked_upgrades', []):
                     if random.random() < 0.3:
@@ -322,6 +324,23 @@ class Game:
                             if getattr(tg, 'pair_id', None) == pid: tg.passed = True
                         self.score += 1; self.asset_manager.stats['total_ghost_passes'] += 1 if is_ghost else 0
                         if self.score % 10 == 0: self.tube_velocity += 0.5
+                # Item collection
+                collected_items = pygame.sprite.spritecollide(self.bird, self.items, True)
+                for item in collected_items:
+                    self.asset_manager.play_sound('collect')
+                    duration = POWERUP_DURATION
+                    if item.type == 'GIANT' and 'longer_giant' in self.asset_manager.stats.get('unlocked_upgrades', []):
+                        duration *= 1.5
+                    self.active_powerups[item.type] = now + duration
+                    ft = FloatingText(item.rect.centerx, item.rect.centery, item.type, YELLOW, self.font)
+                    self.floating_texts.add(ft); self.all_sprites.add(ft)
+                    if item.type == 'GIANT': self.asset_manager.stats['total_giant_uses'] += 1
+
+                # Expiration logic
+                for k in list(self.active_powerups.keys()):
+                    if now > self.active_powerups[k]:
+                        del self.active_powerups[k]
+
                 if not is_ghost:
                     es = [s for s in self.all_sprites if isinstance(s, (Boss, EnergyBall)) or (isinstance(s, Missile) and s.warning_timer <= 0)]
                     if pygame.sprite.spritecollide(self.bird, pygame.sprite.Group(es), False):
@@ -334,9 +353,9 @@ class Game:
                     ct = pygame.sprite.spritecollide(self.bird, self.tubes, False, pygame.sprite.collide_mask)
                     if ct:
                         if is_giant:
-                            now = pygame.time.get_ticks()
-                            self.combo_count = self.combo_count + 1 if now - self.last_destruction_time < 2000 else 1
-                            self.last_destruction_time = now
+                            now_col = pygame.time.get_ticks()
+                            self.combo_count = self.combo_count + 1 if now_col - self.last_destruction_time < 2000 else 1
+                            self.last_destruction_time = now_col
                             for tube in ct: tube.kill(); self.score += self.combo_count; self.asset_manager.stats['total_destroyed'] += 1
                             self.asset_manager.play_sound('explosion', self.combo_count); self.shake_timer = 30
                         else: self.handle_game_over()
