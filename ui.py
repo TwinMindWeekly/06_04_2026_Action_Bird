@@ -94,9 +94,16 @@ def draw_ui(game):
                 pygame.draw.rect(game.screen, (40, 40, 40), (20, y_offset, 120, 12), border_radius=6)
                 pygame.draw.rect(game.screen, color, (22, y_offset + 2, 116 * remaining, 8), border_radius=4)
                 
-                type_surf = game.font.render(ptype, True, color)
                 game.screen.blit(type_surf, (150, y_offset - 8))
                 y_offset += 30
+        
+        # Mobile Controls Hint (Lower half of screen, faint)
+        if game.score < 5:
+            hint_font = pygame.font.SysFont('Arial', 18)
+            jump_hint = hint_font.render("TAP LEFT: JUMP", True, (255, 255, 255, 100))
+            shoot_hint = hint_font.render("TAP RIGHT: SHOOT", True, (255, 255, 255, 100))
+            game.screen.blit(jump_hint, (50, HEIGHT - 100))
+            game.screen.blit(shoot_hint, (WIDTH - 180, HEIGHT - 100))
 
 def draw_lobby(game):
     overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -206,8 +213,7 @@ def draw_paused(game):
     title = game.large_font.render("PAUSED", True, WHITE)
     game.screen.blit(title, title.get_rect(center=(WIDTH//2, HEIGHT//2 - 40)))
     
-    hint = game.font.render("Press ESC to resume", True, YELLOW)
-    game.screen.blit(hint, hint.get_rect(center=(WIDTH//2, HEIGHT//2 + 20)))
+    draw_button(game, "RESUME", WIDTH//2 - 60, HEIGHT//2 + 50, 120, 40, BLUE, (100, 180, 255))
 
 def draw_game_over(game):
     overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)

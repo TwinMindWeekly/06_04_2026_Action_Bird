@@ -248,6 +248,16 @@ class Game:
                             elif pygame.Rect(WIDTH//2 - 50, 540, 100, 40).collidepoint(mouse_pos): self.change_state(LOBBY)
                         elif self.state == ACHIEVEMENTS:
                             if pygame.Rect(WIDTH//2 - 50, 520, 100, 40).collidepoint(mouse_pos): self.change_state(LOBBY)
+                        elif self.state == PLAYING:
+                            if mouse_pos[0] < WIDTH // 2: # Left side
+                                self.asset_manager.play_sound('wing'); curr_j = JUMP_STRENGTH
+                                if 'SLOW' in self.active_powerups: curr_j *= 0.5
+                                self.bird.jump(curr_j)
+                            else: # Right side
+                                self.shoot_laser()
+                        elif self.state == PAUSED:
+                            if pygame.Rect(WIDTH//2 - 60, HEIGHT//2 + 50, 120, 40).collidepoint(mouse_pos):
+                                self.state = PLAYING; pygame.mixer.music.unpause()
                         elif self.state == GAME_OVER:
                             if pygame.Rect(WIDTH//2 - 70, HEIGHT//2 + 130, 140, 50).collidepoint(mouse_pos): self.change_state(PLAYING)
                             elif pygame.Rect(WIDTH//2 - 70, HEIGHT//2 + 200, 140, 50).collidepoint(mouse_pos): self.change_state(LOBBY)
