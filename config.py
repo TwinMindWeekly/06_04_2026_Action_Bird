@@ -35,6 +35,17 @@ ASSETS_DIR = "assets"
 IMG_DIR = os.path.join(ASSETS_DIR, "images")
 SND_DIR = os.path.join(ASSETS_DIR, "sounds")
 
+# Đường dẫn settings.json: dùng thư mục writable của app trên Android
+if 'ANDROID_ARGUMENT' in os.environ or 'ANDROID_ROOT' in os.environ:
+    try:
+        from android.storage import app_storage_path
+        _DATA_DIR = app_storage_path()
+    except Exception:
+        _DATA_DIR = os.path.expanduser('~')
+else:
+    _DATA_DIR = os.path.dirname(os.path.abspath(__file__))
+SETTINGS_FILE = os.path.join(_DATA_DIR, 'settings.json')
+
 # Màu sắc
 WHITE   = (255, 255, 255)
 BLACK   = (0,   0,   0  )

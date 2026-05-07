@@ -203,10 +203,10 @@ class AssetManager:
         return hashlib.sha256((data_str + salt).encode('utf-8')).hexdigest()
 
     def load_stats(self):
-        if not os.path.exists('settings.json'):
+        if not os.path.exists(SETTINGS_FILE):
             return
         try:
-            with open('settings.json', 'r') as f:
+            with open(SETTINGS_FILE, 'r') as f:
                 raw = f.read()
             parsed = json.loads(raw)
             if "payload" in parsed and "hash" in parsed:
@@ -234,7 +234,7 @@ class AssetManager:
                 "payload": encoded,
                 "hash":    self.get_save_hash(encoded),
             }
-            with open('settings.json', 'w') as f:
+            with open(SETTINGS_FILE, 'w') as f:
                 json.dump(save_data, f, indent=4)
         except Exception as e:
             print(f"Lỗi save: {e}")
