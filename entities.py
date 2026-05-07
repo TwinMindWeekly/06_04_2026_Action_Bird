@@ -3,6 +3,58 @@ import random
 import math
 from config import *
 
+# ---------------------------------------------------------------------------
+# Pixel-art boss template  20 cols × 20 rows  scale=5  → 100×100 surface
+# 0=transparent  1=body(dark metal)  2=shadow/armor  3=highlight/rivet
+# 4=eye-red  5=eye-glow  6=fang(gold)  7=wing  8=thruster  9=flame
+# ---------------------------------------------------------------------------
+_BOSS_GRID = [
+    [0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0],  #  0  crown
+    [0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0],  #  1
+    [0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0],  #  2
+    [0,0,0,1,1,3,3,1,1,1,1,1,1,3,3,1,1,0,0,0],  #  3  rivets
+    [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],  #  4
+    [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],  #  5
+    [0,0,1,1,4,4,4,1,1,1,1,1,1,4,4,4,1,1,0,0],  #  6  eyes
+    [0,0,1,1,4,5,4,1,1,1,1,1,1,4,5,4,1,1,0,0],  #  7  eye-glow center
+    [0,0,1,1,4,4,4,1,1,1,1,1,1,4,4,4,1,1,0,0],  #  8
+    [0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0],  #  9
+    [0,0,1,1,1,1,2,1,1,1,1,1,2,1,1,1,1,1,0,0],  # 10  armor crease
+    [0,0,1,1,6,6,6,1,1,1,1,1,1,6,6,6,1,1,0,0],  # 11  fangs top
+    [0,0,1,6,6,6,6,1,1,1,1,1,1,6,6,6,6,1,0,0],  # 12  fangs mid (widest)
+    [0,0,1,1,6,6,6,1,1,1,1,1,1,6,6,6,1,1,0,0],  # 13  fangs bottom
+    [0,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,0,0],  # 14  shoulder armor
+    [0,2,2,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,0,0],  # 15
+    [7,7,7,7,7,1,1,1,1,1,1,1,1,1,1,7,7,7,7,7],  # 16  wings spread (5+10+5)
+    [7,7,7,7,7,7,1,1,1,1,1,1,1,1,7,7,7,7,7,7],  # 17  widest wings (6+8+6)
+    [0,7,7,7,7,7,1,1,1,1,1,1,1,7,7,7,7,7,0,0],  # 18  tapered wings
+    [0,0,0,8,8,8,9,9,9,9,9,9,8,8,8,0,0,0,0,0],  # 19  thrusters + flame
+]
+
+_BOSS_PALETTE = {
+    1: ( 52,  52,  78),   # dark metal body
+    2: ( 28,  28,  48),   # deep shadow / armor plate
+    3: (108, 108, 152),   # highlight / rivet
+    4: (220,  28,  28),   # eye red
+    5: (255, 175,  55),   # eye inner glow
+    6: (205, 162,   0),   # golden fang
+    7: ( 32,  32,  58),   # wing (darker metal)
+    8: (225,  95,   0),   # thruster casing
+    9: (255, 220,  35),   # thruster flame
+}
+
+
+def _make_boss_image():
+    """Return a fresh 100×100 SRCALPHA pixel-art boss surface."""
+    scale = 5
+    surf  = pygame.Surface((100, 100), pygame.SRCALPHA)
+    for ry, row in enumerate(_BOSS_GRID):
+        for cx, idx in enumerate(row):
+            col = _BOSS_PALETTE.get(idx)
+            if col:
+                pygame.draw.rect(surf, col, (cx * scale, ry * scale, scale, scale))
+    return surf
+
 class Bird(pygame.sprite.Sprite):
     def __init__(self, x, y, image, skin_color=None):
         super().__init__()
@@ -70,29 +122,68 @@ class Bird(pygame.sprite.Sprite):
 class Tube(pygame.sprite.Sprite):
     def __init__(self, x, height, is_top, moving=False):
         super().__init__()
-        self.image = pygame.Surface((TUBE_WIDTH, height))
-        self.image.fill(BLUE)
-        pygame.draw.rect(self.image, BLACK, self.image.get_rect(), 2)
-        
-        self.is_top = is_top
+        self.is_top   = is_top
         self.is_moving = moving
-        self.base_y = 0 if is_top else height + TUBE_GAP
-        self.offset = random.uniform(0, math.pi * 2) 
-        
+        self.base_y   = 0 if is_top else height + TUBE_GAP
+        self.offset   = random.uniform(0, math.pi * 2)
+
+        self.image = self._draw_tube(TUBE_WIDTH, height, is_top, moving)
         if is_top:
             self.rect = self.image.get_rect(topleft=(x, 0))
         else:
             self.rect = self.image.get_rect(topleft=(x, self.base_y))
-        
         self.mask = pygame.mask.from_surface(self.image)
+
+    @staticmethod
+    def _draw_tube(w, h, is_top, moving):
+        surf = pygame.Surface((w, h), pygame.SRCALPHA)
+
+        # Color scheme: green for static, blue-teal for moving
+        if moving:
+            body  = (55,  160, 215)
+            dark  = (25,  100, 155)
+            light = (110, 210, 255)
+            rim   = (40,  130, 185)
+        else:
+            body  = (65,  185, 65)
+            dark  = (30,  115, 30)
+            light = (130, 235, 130)
+            rim   = (45,  155, 45)
+
+        # --- Body ---
+        surf.fill(body)
+        pygame.draw.rect(surf, dark,  (0,     0, 8, h))       # left shadow
+        pygame.draw.rect(surf, light, (w - 6, 0, 6, h))       # right highlight
+        # center crease
+        cr = tuple(max(0, c - 30) for c in body)
+        pygame.draw.rect(surf, cr, (w // 2 - 2, 0, 3, h))
+
+        # --- Cap / rim at the open end (20 px) ---
+        CAP = 20
+        if is_top:
+            cy = h - CAP                                       # cap at bottom edge
+            pygame.draw.rect(surf, rim,   (0, cy,      w,   CAP))
+            pygame.draw.rect(surf, light, (0, cy,      w,   4  ))   # top highlight
+            pygame.draw.rect(surf, dark,  (0, h - 3,   w,   3  ))   # bottom shadow
+            pygame.draw.rect(surf, dark,  (0, cy,      3,   CAP))   # left shadow on cap
+            pygame.draw.rect(surf, light, (w - 4, cy,  4,   CAP))   # right highlight on cap
+        else:
+            cy = 0
+            pygame.draw.rect(surf, rim,   (0, cy,      w,   CAP))
+            pygame.draw.rect(surf, dark,  (0, cy,      w,   3  ))   # top shadow
+            pygame.draw.rect(surf, light, (0, CAP - 4, w,   4  ))   # bottom highlight
+            pygame.draw.rect(surf, dark,  (0, cy,      3,   CAP))
+            pygame.draw.rect(surf, light, (w - 4, cy,  4,   CAP))
+
+        # --- Outer border ---
+        pygame.draw.rect(surf, dark, surf.get_rect(), 2)
+        return surf
 
     def update(self, velocity):
         self.rect.x -= velocity
-        
         if self.is_moving:
-            move_range = 50
-            self.rect.y = self.base_y + math.sin(pygame.time.get_ticks() * 0.003 + self.offset) * move_range
-            
+            self.rect.y = int(self.base_y + math.sin(
+                pygame.time.get_ticks() * 0.003 + self.offset) * 50)
         if self.rect.right < 0:
             self.kill()
 
@@ -116,39 +207,111 @@ class Cloud(pygame.sprite.Sprite):
 class Item(pygame.sprite.Sprite):
     def __init__(self, x, y, type):
         super().__init__()
-        self.type = type 
-        self.image = pygame.Surface((ITEM_SIZE, ITEM_SIZE), pygame.SRCALPHA)
-        
-        if type == 'LASER': color = RED
-        elif type == 'GHOST': color = GRAY
-        elif type == 'SLOW': color = PURPLE
-        elif type == 'GIANT': color = ORANGE
-        else: color = WHITE
-        
-        pygame.draw.circle(self.image, color, (ITEM_SIZE//2, ITEM_SIZE//2), ITEM_SIZE//2)
-        font = pygame.font.SysFont('Arial', 18, bold=True)
-        text = font.render(type[0], True, WHITE)
-        self.image.blit(text, text.get_rect(center=(ITEM_SIZE//2, ITEM_SIZE//2)))
+        self.type = type
+        self._base_image = self._draw_icon(type)
+        self.image = self._base_image.copy()
         self.rect = self.image.get_rect(center=(x, y))
+        self._bob_timer = 0
+        self._glow_timer = 0
+
+    def _draw_icon(self, type):
+        S = ITEM_SIZE + 10  # 40px canvas
+        surf = pygame.Surface((S, S), pygame.SRCALPHA)
+        c = S // 2
+
+        if type == 'LASER':
+            # Red hexagon background
+            self._draw_hexagon(surf, c, c, 18, (200, 30, 30))
+            self._draw_hexagon(surf, c, c, 18, (255, 80, 80), border=2)
+            # Lightning bolt
+            pts = [(c-3, c-10), (c+4, c-10), (c, c-1), (c+6, c-1), (c-4, c+10), (c+1, c+10), (c+3, c+1), (c-3, c+1)]
+            pygame.draw.polygon(surf, YELLOW, pts)
+            pygame.draw.polygon(surf, WHITE, pts, 1)
+
+        elif type == 'GHOST':
+            # Dark blue-purple background
+            self._draw_hexagon(surf, c, c, 18, (50, 30, 100))
+            self._draw_hexagon(surf, c, c, 18, (150, 100, 255), border=2)
+            # Ghost body: rounded top + wavy bottom
+            ghost_color = (200, 200, 255)
+            pygame.draw.ellipse(surf, ghost_color, (c-8, c-11, 16, 14))
+            pygame.draw.rect(surf, ghost_color, (c-8, c-4, 16, 12))
+            # Wavy bottom (3 bumps)
+            for i in range(3):
+                pygame.draw.circle(surf, ghost_color, (c-7+i*7, c+9), 4)
+            # Gaps between bumps
+            pygame.draw.circle(surf, (0, 0, 0, 0), (c-3, c+9), 3)
+            pygame.draw.circle(surf, (0, 0, 0, 0), (c+3, c+9), 3)
+            # Eyes
+            pygame.draw.circle(surf, (80, 40, 180), (c-4, c-3), 3)
+            pygame.draw.circle(surf, (80, 40, 180), (c+4, c-3), 3)
+            pygame.draw.circle(surf, WHITE, (c-3, c-4), 1)
+            pygame.draw.circle(surf, WHITE, (c+5, c-4), 1)
+
+        elif type == 'SLOW':
+            # Purple hexagon background
+            self._draw_hexagon(surf, c, c, 18, (80, 20, 120))
+            self._draw_hexagon(surf, c, c, 18, (200, 80, 255), border=2)
+            # Hourglass shape
+            hg_color = (230, 200, 255)
+            pts_top = [(c-8, c-11), (c+8, c-11), (c+2, c-2), (c-2, c-2)]
+            pts_bot = [(c-2, c+2), (c+2, c+2), (c+8, c+11), (c-8, c+11)]
+            pygame.draw.polygon(surf, hg_color, pts_top)
+            pygame.draw.polygon(surf, hg_color, pts_bot)
+            # Border lines
+            pygame.draw.line(surf, WHITE, (c-8, c-11), (c+8, c-11), 2)
+            pygame.draw.line(surf, WHITE, (c-8, c+11), (c+8, c+11), 2)
+            # Sand dots
+            for dx, dy in [(-1, 4), (1, 4), (0, 6), (-1, -5), (1, -5)]:
+                pygame.draw.circle(surf, (255, 220, 100), (c+dx, c+dy), 1)
+
+        elif type == 'GIANT':
+            # Orange hexagon background
+            self._draw_hexagon(surf, c, c, 18, (160, 70, 0))
+            self._draw_hexagon(surf, c, c, 18, (255, 160, 30), border=2)
+            # Up-arrow (growth symbol)
+            arr_color = (255, 240, 100)
+            arrow_pts = [(c, c-11), (c+8, c-2), (c+4, c-2), (c+4, c+10), (c-4, c+10), (c-4, c-2), (c-8, c-2)]
+            pygame.draw.polygon(surf, arr_color, arrow_pts)
+            pygame.draw.polygon(surf, WHITE, arrow_pts, 1)
+
+        return surf
+
+    def _draw_hexagon(self, surf, cx, cy, r, color, border=0):
+        pts = []
+        for i in range(6):
+            angle = math.pi / 180 * (60 * i - 30)
+            pts.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
+        if border:
+            pygame.draw.polygon(surf, color, pts, border)
+        else:
+            pygame.draw.polygon(surf, color, pts)
 
     def update(self, velocity):
         self.rect.x -= velocity
         if self.rect.right < 0:
             self.kill()
+            return
+        # Bob animation
+        self._bob_timer += 0.08
+        self._glow_timer += 1
+        bob_y = int(math.sin(self._bob_timer) * 3)
+        self.image = pygame.transform.rotate(self._base_image, math.sin(self._bob_timer * 0.5) * 8)
+        new_rect = self.image.get_rect(center=(self.rect.centerx, self.rect.centery + bob_y))
+        self.rect = new_rect
 
 class Laser(pygame.sprite.Sprite):
     def __init__(self, start_pos):
         super().__init__()
-        width = WIDTH - start_pos[0]
-        self.image = pygame.Surface((width, 6), pygame.SRCALPHA)
-        pygame.draw.rect(self.image, RED, (0, 0, width, 6))
-        pygame.draw.rect(self.image, WHITE, (0, 2, width, 2)) 
+        self.image = pygame.Surface((40, 6), pygame.SRCALPHA)
+        pygame.draw.rect(self.image, RED, (0, 0, 40, 6))
+        pygame.draw.rect(self.image, WHITE, (0, 2, 40, 2))
         self.rect = self.image.get_rect(midleft=start_pos)
-        self.life_timer = pygame.time.get_ticks() + 200
+        self.speed = 15
 
     def update(self, bird_rect):
-        self.rect.midleft = (bird_rect.right, bird_rect.centery)
-        if pygame.time.get_ticks() > self.life_timer:
+        self.rect.x += self.speed
+        if self.rect.left > WIDTH:
             self.kill()
 
 class TrailEffect(pygame.sprite.Sprite):
@@ -166,7 +329,7 @@ class TrailEffect(pygame.sprite.Sprite):
             self.image.set_alpha(self.alpha)
 
 class FloatingText(pygame.sprite.Sprite):
-    def __init__(self, x, y, text, color, font, size=24):
+    def __init__(self, x, y, text, color, font):
         super().__init__()
         self.font = font
         self.image = self.font.render(text, True, color)
@@ -240,24 +403,16 @@ class EnergyBall(pygame.sprite.Sprite):
 class Boss(pygame.sprite.Sprite):
     def __init__(self):
         super().__init__()
-        self.image = pygame.Surface((100, 100), pygame.SRCALPHA)
-        self._redraw_base()
-        
-        self.rect = self.image.get_rect(center=(WIDTH + 100, HEIGHT // 2))
-        self.target_x = WIDTH - 80
-        self.hp = 10
-        self.max_hp = 10
+        self._base_surf = _make_boss_image()
+        self.image      = self._base_surf.copy()
+        self.rect       = self.image.get_rect(center=(WIDTH + 100, HEIGHT // 2))
+        self.target_x   = WIDTH - 80
+        self.hp         = 10
+        self.max_hp     = 10
         self.move_speed = 2
-        self.direction = 1
-        self.shoot_timer = 0
-        self.hit_timer = 0
-
-    def _redraw_base(self):
-        self.image.fill((0,0,0,0))
-        pygame.draw.ellipse(self.image, (100, 100, 100), (10, 40, 80, 40))
-        pygame.draw.ellipse(self.image, (150, 200, 255), (30, 20, 40, 40))
-        pygame.draw.polygon(self.image, RED, [(20, 60), (30, 80), (40, 60)])
-        pygame.draw.polygon(self.image, RED, [(60, 60), (70, 80), (80, 60)])
+        self.direction  = 1
+        self.shoot_timer= 0
+        self.hit_timer  = 0
 
     def update(self, current_vel=0):
         if self.rect.centerx > self.target_x:
@@ -271,12 +426,11 @@ class Boss(pygame.sprite.Sprite):
 
         if self.hit_timer > 0:
             self.hit_timer -= 1
+            self.image = self._base_surf.copy()
             if self.hit_timer % 4 < 2:
                 self.image.fill((255, 255, 255, 150), special_flags=pygame.BLEND_RGBA_ADD)
-            else:
-                self._redraw_base()
         else:
-            self._redraw_base()
+            self.image = self._base_surf
 
     def take_damage(self):
         self.hp -= 1
