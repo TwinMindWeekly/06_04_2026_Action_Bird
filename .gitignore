@@ -1,7 +1,26 @@
 __pycache__/
-dist/
-build/
-*.spec
+*.pyc
+
+# Editor / IDE
 .vscode/
 .idea/
-*.pyc
+
+# PyInstaller (legacy) — KHÔNG ignore buildozer.spec
+*.spec
+!buildozer.spec
+
+# Buildozer / p4a artifacts
+.buildozer/
+bin/
+
+# Build artifacts
+dist/
+build/
+
+# Runtime / user data
+settings.json
+
+# Misc tool state
+.omc/
+*.bak
+*.tmp

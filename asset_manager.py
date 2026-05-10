@@ -115,13 +115,18 @@ class AssetManager:
         self.sounds['explosion'] = self.load_sound('explosion.wav')
         self.sounds['game_over'] = self.load_sound('game_over.wav')
 
-        music_paths = [os.path.join(SND_DIR, 'music.mp3'), 'music.mp3']
+        music_paths = [
+            os.path.join(SND_DIR, 'music.ogg'),
+            os.path.join(APP_DIR, 'music.ogg'),
+            os.path.join(SND_DIR, 'music.mp3'),
+            os.path.join(APP_DIR, 'music.mp3'),
+        ]
         self.music_file = next((p for p in music_paths if os.path.exists(p)), None)
 
         self.pre_render_skins()
 
     def load_image(self, filename, scale=None):
-        paths = [os.path.join(IMG_DIR, filename), filename]
+        paths = [os.path.join(IMG_DIR, filename), os.path.join(APP_DIR, filename)]
         for p in paths:
             if os.path.exists(p):
                 try:
@@ -136,7 +141,7 @@ class AssetManager:
         return fallback
 
     def load_sound(self, filename):
-        paths = [os.path.join(SND_DIR, filename), filename]
+        paths = [os.path.join(SND_DIR, filename), os.path.join(APP_DIR, filename)]
         for p in paths:
             if os.path.exists(p):
                 try:

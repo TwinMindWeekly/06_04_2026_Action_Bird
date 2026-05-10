@@ -30,8 +30,10 @@ ITEM_CHANCE = 0.15  # 15% tỷ lệ xuất hiện vật phẩm
 POWERUP_DURATION = 5000  # 5 giây (ms)
 WARNING_TIME = 1500  # 1.5 giây (ms) cảnh báo hết giờ
 
-# Thư mục tài nguyên
-ASSETS_DIR = "assets"
+# Thư mục tài nguyên: dùng path tuyệt đối dựa trên __file__
+# (Android: cwd là writable storage, không phải nơi bundle assets)
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+ASSETS_DIR = os.path.join(APP_DIR, "assets")
 IMG_DIR = os.path.join(ASSETS_DIR, "images")
 SND_DIR = os.path.join(ASSETS_DIR, "sounds")
 

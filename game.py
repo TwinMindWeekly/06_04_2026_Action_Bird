@@ -12,7 +12,12 @@ class Game:
     def __init__(self):
         pygame.init()
         pygame.mixer.init()
-        self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
+        if 'ANDROID_ARGUMENT' in os.environ or 'ANDROID_ROOT' in os.environ:
+            self.screen = pygame.display.set_mode(
+                (WIDTH, HEIGHT), pygame.FULLSCREEN | pygame.SCALED
+            )
+        else:
+            self.screen = pygame.display.set_mode((WIDTH, HEIGHT))
         pygame.display.set_caption("Action Bird")
         self.clock      = pygame.time.Clock()
         self.font        = make_font(24, bold=True)
@@ -152,7 +157,9 @@ class Game:
             if WIDTH - last.rect.right < 250:
                 return False
 
-        h         = random.randint(100, 300)
+        h_min = max(60, int(HEIGHT * 100 / 600))
+        h_max = max(h_min + 40, int(HEIGHT * 300 / 600))
+        h         = random.randint(h_min, h_max)
         is_moving = self.score > 30 and random.random() < 0.6
         top   = Tube(WIDTH, h, True,  is_moving)
         bot   = Tube(WIDTH, h, False, is_moving)
