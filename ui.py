@@ -203,6 +203,31 @@ def draw_ui(game):
             ts2 = tf.render(f"• {tip}", True, WHITE)
             game.screen.blit(ts2, ts2.get_rect(center=(WIDTH // 2, ov_y + 44 + i * 22)))
 
+    # Boss Hearts HUD  (♥♥♥)
+    upgrades = game.asset_manager.stats.get('unlocked_upgrades', [])
+    if game.boss_fight and 'boss_hearts' in upgrades:
+        lives = getattr(game, 'boss_lives', 3)
+        inv   = getattr(game, 'boss_invincible_timer', 0)
+        hx    = 20
+        hy_h  = y_off + 6
+        hf    = _f(22, bold=True)
+        for i in range(3):
+            if i < lives:
+                # nhip nhanh khi con 1 mang
+                if lives == 1 and (now // 200) % 2 == 0:
+                    col = (255, 80, 80)
+                else:
+                    col = (230, 30, 30)
+            else:
+                col = (60, 60, 60)
+            hs2 = hf.render("♥", True, col)
+            game.screen.blit(hs2, (hx + i * 26, hy_h))
+        # flash trang khi bi thuong
+        if inv > 0 and (now // 80) % 2 == 0:
+            fl = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            fl.fill((255, 0, 0, 45))
+            game.screen.blit(fl, (0, 0))
+
     # Settings button (top-right)
     draw_settings_btn(game)
 
@@ -240,11 +265,54 @@ def draw_lobby(game):
     draw_button(game, "SHOP",       WIDTH//2-100, 330, 200, 50, PURPLE, (200,100,255))
     draw_button(game, "AWARDS",     WIDTH//2-100, 400, 200, 50, ORANGE, (255,180,50))
     draw_button(game, "SETTINGS",   WIDTH//2-100, 470, 200, 50, GRAY,   (200,200,200))
+    draw_button(game, "QUIT GAME",  WIDTH//2-100, 535, 200, 45,
+                (140, 25, 25), (220, 60, 60))
     draw_settings_btn(game)
 
     # Daily reward overlay on top
     if getattr(game, 'daily_reward_pending', False):
         draw_daily_reward_overlay(game)
+
+    # Quit confirmation overlay
+    if getattr(game, '_quit_confirm', False):
+        _draw_quit_confirm(game)
+
+
+def _draw_quit_confirm(game):
+    """Overlay xác nhận thoát game."""
+    # Tối phông
+    ov = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    ov.fill((0, 0, 0, 180))
+    game.screen.blit(ov, (0, 0))
+
+    # Panel
+    pw, ph = 280, 180
+    px, py = WIDTH // 2 - pw // 2, HEIGHT // 2 - ph // 2
+    panel = pygame.Surface((pw, ph), pygame.SRCALPHA)
+    panel.fill((15, 8, 8, 240))
+    game.screen.blit(panel, (px, py))
+    pygame.draw.rect(game.screen, (200, 40, 40), (px, py, pw, ph), 2, border_radius=12)
+
+    # Icon cảnh báo
+    now = pygame.time.get_ticks()
+    pulse = 0.8 + 0.2 * math.sin(now * 0.006)
+    icon_f = _f(32, bold=True)
+    icon_s = icon_f.render("!", True, (int(255 * pulse), int(60 * pulse), 0))
+    game.screen.blit(icon_s, icon_s.get_rect(center=(WIDTH // 2, py + 36)))
+
+    # Text
+    tf = _f(17, bold=True)
+    t1 = tf.render("Leave Game?", True, WHITE)
+    game.screen.blit(t1, t1.get_rect(center=(WIDTH // 2, py + 72)))
+    sf = _f(13)
+    t2 = sf.render("Progress will be saved.", True, GRAY)
+    game.screen.blit(t2, t2.get_rect(center=(WIDTH // 2, py + 96)))
+
+    # Nút YES / NO
+    draw_button(game, "YES, QUIT", WIDTH // 2 - 105, py + ph - 58, 90, 40,
+                (160, 25, 25), (220, 60, 60))
+    draw_button(game, "STAY",     WIDTH // 2 + 15,  py + ph - 58, 90, 40,
+                (30, 100, 30),  (60, 190, 60))
 
 # ============================================================= DAILY REWARD
 def draw_daily_reward_overlay(game):
@@ -639,6 +707,15 @@ def draw_shop(game):
         draw_button(game, "BACK", WIDTH // 2 - 55, y + 4, 110, 38, GRAY, (220, 220, 220))
 
 # ============================================================= ACHIEVEMENTS
+def _parse_progress(desc):
+    """Trích xuất giá trị hiện tại và mục tiêu từ chuỗi desc dạng 'X/Y'."""
+    import re
+    m = re.search(r'(\d+)/(\d+)', desc)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return None, None
+
+
 def get_all_achievements(stats):
     d  = stats.get('total_destroyed',   0)
     g  = stats.get('total_ghost_passes',0)
@@ -677,61 +754,138 @@ def get_all_achievements(stats):
 
 
 def draw_achievements(game):
-    TIER_COL = {'B': (180,130,60), 'S': (190,190,230), 'G': (255,200,30)}
-    stats       = game.asset_manager.stats
-    unlocked_ids= stats.get('unlocked_achievements', [])
-    all_ach     = get_all_achievements(stats)
-    done        = sum(1 for a in all_ach if a['unlocked'])
+    TIER_COL  = {'B': (200, 150, 70), 'S': (200, 200, 240), 'G': (255, 210, 40)}
+    TIER_BG   = {'B': (60, 40, 10),   'S': (30, 30, 55),    'G': (60, 50,  5) }
+    TIER_LABEL= {'B': 'BRONZE',       'S': 'SILVER',        'G': 'GOLD'       }
+    stats        = game.asset_manager.stats
+    unlocked_ids = stats.get('unlocked_achievements', [])
+    claimed_ids  = stats.setdefault('claimed_achievements',  [])
+    all_ach      = get_all_achievements(stats)
+    done         = sum(1 for a in all_ach if a['unlocked'])
+    total_earned = sum(a['reward'] for a in all_ach if a['id'] in claimed_ids)
+    now          = pygame.time.get_ticks()
 
+    # ---- Panel header ----
     draw_panel(game, 18, 55, WIDTH - 36, HEIGHT - 85, "AWARDS")
-    hdr = game.font.render(f"Completed: {done}/{len(all_ach)}", True, YELLOW)
-    game.screen.blit(hdr, hdr.get_rect(center=(WIDTH // 2, 85)))
 
+    hdr_f = _f(15, bold=True)
+    hdr   = hdr_f.render(f"Completed: {done}/{len(all_ach)}", True, YELLOW)
+    game.screen.blit(hdr, hdr.get_rect(midleft=(30, 82)))
+    earned_s = _f(13).render(f"Earned: {total_earned} HS", True, GOLD)
+    game.screen.blit(earned_s, earned_s.get_rect(midright=(WIDTH - 28, 82)))
+
+    # ---- Scrollable list ----
     list_top = 105
     list_h   = HEIGHT - 175
+    row_h    = 68
     list_surf= pygame.Surface((WIDTH - 36, list_h), pygame.SRCALPHA)
-
-    scroll  = getattr(game, '_ach_scroll', 0)
-    row_h   = 52
-    y       = -scroll
-    sf2     = _f(15, bold=True)
-    df      = _f(13)
+    scroll   = getattr(game, '_ach_scroll', 0)
+    y        = -scroll
+    name_f   = _f(14, bold=True)
+    desc_f   = _f(12)
+    tier_f   = _f(10, bold=True)
+    claim_f  = _f(12, bold=True)
 
     for ach in all_ach:
         if y + row_h < 0:   y += row_h; continue
         if y > list_h:      break
 
-        tc      = TIER_COL.get(ach['tier'], WHITE)
-        is_done = ach['unlocked']
-        rewarded= ach['id'] in unlocked_ids
+        tc       = TIER_COL.get(ach['tier'], WHITE)
+        bg_tier  = TIER_BG.get(ach['tier'], (20,20,30))
+        is_done  = ach['unlocked']
+        is_claimed = ach['id'] in claimed_ids
+        is_unlocked_unclaimed = is_done and not is_claimed
 
-        bg = pygame.Surface((WIDTH - 52, 46), pygame.SRCALPHA)
-        bg.fill((255,255,255,15) if is_done else (0,0,0,40))
-        list_surf.blit(bg, (8, y + 2))
-
-        pygame.draw.rect(list_surf, tc if is_done else (80,80,80), (8, y+14, 20, 20), border_radius=4)
-        list_surf.blit(sf2.render(ach['tier'], True, tc if is_done else GRAY),
-                       sf2.render(ach['tier'], True, tc).get_rect(center=(18, y+24)))
-        list_surf.blit(sf2.render(ach['name'], True, tc if is_done else (120,120,120)), (34, y+6))
-        list_surf.blit(df.render(ach['desc'],  True, WHITE if is_done else (90,90,90)),  (34, y+24))
-
-        if ach['reward']:
-            rc = YELLOW if rewarded else (100,100,60)
-            rs = df.render(f"+{ach['reward']} HS", True, rc)
-            list_surf.blit(rs, (WIDTH - 82, y+16))
+        # Card background
+        card_w = WIDTH - 52
+        card   = pygame.Surface((card_w, row_h - 4), pygame.SRCALPHA)
         if is_done:
-            pygame.draw.circle(list_surf, YELLOW, (WIDTH-54, y+10), 6)
-            pygame.draw.lines(list_surf, BLACK, False,
-                              [(WIDTH-57,y+10),(WIDTH-54,y+13),(WIDTH-49,y+7)], 2)
+            card.fill((*bg_tier, 210))
+        else:
+            card.fill((10, 10, 18, 200))
+        list_surf.blit(card, (8, y + 2))
+
+        # Tier stripe (left)
+        pygame.draw.rect(list_surf, tc, (8, y + 2, 4, row_h - 4), border_radius=2)
+
+        # Card border
+        border_col = tc if is_done else (45, 45, 65)
+        pygame.draw.rect(list_surf, border_col, (8, y + 2, card_w, row_h - 4), 1, border_radius=6)
+
+        # Tier badge circle
+        pygame.draw.circle(list_surf, tc,    (30, y + row_h // 2), 14)
+        pygame.draw.circle(list_surf, BLACK, (30, y + row_h // 2), 14, 1)
+        tl = tier_f.render(ach['tier'], True, BLACK if is_done else (60,60,60))
+        list_surf.blit(tl, tl.get_rect(center=(30, y + row_h // 2)))
+
+        # Name + desc
+        name_col = tc if is_done else (100, 100, 115)
+        ns = name_f.render(ach['name'], True, name_col)
+        list_surf.blit(ns, (50, y + 8))
+        ds = desc_f.render(ach['desc'], True, WHITE if is_done else (80, 80, 95))
+        list_surf.blit(ds, (50, y + 26))
+
+        # Progress bar (only if not done)
+        if not is_done:
+            cur_v, max_v = _parse_progress(ach['desc'])
+            if cur_v is not None and max_v and max_v > 0:
+                bar_x, bar_y = 50, y + 44
+                bar_w = card_w - 110
+                ratio = min(1.0, cur_v / max_v)
+                pygame.draw.rect(list_surf, (40, 40, 55), (bar_x, bar_y, bar_w, 8), border_radius=4)
+                if ratio > 0:
+                    prog_col = (100, 180, 255) if ach['tier'] == 'S' else \
+                               (255, 190, 30)  if ach['tier'] == 'G' else (180, 130, 60)
+                    pygame.draw.rect(list_surf, prog_col,
+                                     (bar_x, bar_y, int(bar_w * ratio), 8), border_radius=4)
+                pct_s = _f(11).render(f"{int(ratio*100)}%", True, GRAY)
+                list_surf.blit(pct_s, (bar_x + bar_w + 4, bar_y - 1))
+
+        # Right side: CLAIM / CLAIMED / lock icon
+        right_x = card_w - 8
+        mid_y   = y + row_h // 2
+
+        if is_unlocked_unclaimed:
+            # Pulsing CLAIM button
+            pulse = 0.85 + 0.15 * math.sin(now * 0.005)
+            btn_col = (int(220 * pulse), int(160 * pulse), 0)
+            btn_rect_local = pygame.Rect(right_x - 95, y + 20, 90, 28)
+            pygame.draw.rect(list_surf, btn_col, btn_rect_local, border_radius=8)
+            pygame.draw.rect(list_surf, GOLD, btn_rect_local, 1, border_radius=8)
+            rew_s = claim_f.render(f"+{ach['reward']} HS", True, BLACK)
+            list_surf.blit(rew_s, rew_s.get_rect(center=btn_rect_local.center))
+
+        elif is_claimed:
+            # Green checkmark badge
+            chk_rect = pygame.Rect(right_x - 80, y + 18, 75, 28)
+            pygame.draw.rect(list_surf, (20, 100, 40), chk_rect, border_radius=8)
+            pygame.draw.rect(list_surf, GREEN, chk_rect, 1, border_radius=8)
+            ck_s = claim_f.render("✓ CLAIMED", True, GREEN)
+            list_surf.blit(ck_s, ck_s.get_rect(center=chk_rect.center))
+
+        else:
+            # Lock icon for locked achievements
+            lk_s = _f(18).render("🔒", True, (70,70,85))
+            list_surf.blit(lk_s, lk_s.get_rect(center=(right_x - 20, mid_y)))
+
         y += row_h
 
     game.screen.blit(list_surf, (18, list_top))
 
+    # Scrollbar
     max_scroll = max(0, len(all_ach) * row_h - list_h)
-    for ev in pygame.event.get(pygame.MOUSEWHEEL):
-        game._ach_scroll = max(0, min(max_scroll, scroll - ev.y * 20))
+    if max_scroll > 0:
+        sb_h   = int(list_h * list_h / (len(all_ach) * row_h))
+        sb_y   = int(scroll / max_scroll * (list_h - sb_h))
+        pygame.draw.rect(game.screen, (50,50,70),
+                         (WIDTH - 22, list_top, 6, list_h), border_radius=3)
+        pygame.draw.rect(game.screen, CYAN,
+                         (WIDTH - 22, list_top + sb_y, 6, max(20, sb_h)), border_radius=3)
 
-    draw_button(game, "BACK", WIDTH // 2 - 55, HEIGHT - 65, 110, 40, GRAY, (220,220,220))
+    for ev in pygame.event.get(pygame.MOUSEWHEEL):
+        pass  # scroll handled in game.py main loop
+
+    draw_button(game, "BACK", WIDTH // 2 - 55, HEIGHT - 65, 110, 40, GRAY, (220, 220, 220))
 
 # ============================================================= PAUSE / GAME OVER
 def draw_paused(game):

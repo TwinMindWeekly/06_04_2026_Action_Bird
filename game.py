@@ -2,6 +2,7 @@ import pygame
 import random
 import math
 import os
+import sys
 from config import *
 from asset_manager import AssetManager
 from entities import Bird, Tube, Cloud, Item, Laser, TrailEffect, FloatingText, Missile, Boss, EnergyBall, Particle
@@ -30,10 +31,16 @@ class Game:
         self.new_record_flag = False
         self.tutorial_step   = 0
         self._shop_tab       = 'SKINS'
-        self._ach_scroll     = 0
+        self._ach_scroll      = 0.0
+        self._ach_scroll_vel  = 0.0
+        self._ach_mouse_down  = False   # cắt giữ chuột
+        self._ach_drag_active = False   # chỉ True sau khi di chuyển >8px
+        self._ach_drag_y      = 0
+        self._ach_drag_scroll0= 0.0
         self.god_mode            = False
         self._god_input          = ""
         self._god_input_active   = False
+        self._quit_confirm       = False
 
         self.reset_game()
 
@@ -69,14 +76,16 @@ class Game:
         self.change_state(GAME_OVER)
 
     def _check_achievements(self):
+        """Đánh dấu thành tựu đã unlock — KHÔNG trao credits tự động.
+        Credits sẽ được trao khi người chơi bấm CLAIM trong màn Awards."""
         stats    = self.asset_manager.stats
         unlocked = stats.setdefault('unlocked_achievements', [])
+        claimed  = stats.setdefault('claimed_achievements',  [])
         for ach in ui.get_all_achievements(stats):
             if ach['id'] not in unlocked and ach['unlocked']:
                 unlocked.append(ach['id'])
-                stats['total_credits'] += ach.get('reward', 0)
                 ft = FloatingText(WIDTH // 2, HEIGHT // 2 - 60,
-                                  f"+ {ach['name']}", YELLOW, self.font)
+                                  f"✓ {ach['name']} — CLAIM IN AWARDS!", YELLOW, self.font)
                 self.floating_texts.add(ft)
                 self.all_sprites.add(ft)
 
@@ -134,6 +143,10 @@ class Game:
         self.score_scale            = 1.0
         self.last_score             = 0
 
+        # Boss Hearts upgrade
+        self.boss_lives             = 3
+        self.boss_invincible_timer  = 0
+
         self.fade_alpha   = 0
         self.fade_speed   = 10
         self.fade_mode    = 'NONE'
@@ -144,6 +157,26 @@ class Game:
             pygame.mixer.music.stop()
 
     def change_state(self, next_state):
+        if next_state == ACHIEVEMENTS:
+            # Auto-claim: Tự động nhận thưởng ngay khi vào màn hình Awards
+            stats = self.asset_manager.stats
+            unlocked = stats.get('unlocked_achievements', [])
+            claimed = stats.setdefault('claimed_achievements', [])
+            all_ach = ui.get_all_achievements(stats)
+            
+            claimed_sum = 0
+            for ach in all_ach:
+                if ach['unlocked'] and ach['id'] not in claimed:
+                    claimed.append(ach['id'])
+                    stats['total_credits'] += ach.get('reward', 0)
+                    claimed_sum += ach.get('reward', 0)
+            
+            if claimed_sum > 0:
+                self.asset_manager.save_stats()
+                # Hiển thị thông báo số HS nhận được
+                ft = FloatingText(WIDTH // 2, 80, f"Auto-claimed +{claimed_sum} HS!", GOLD, self.font)
+                self.floating_texts.add(ft); self.all_sprites.add(ft)
+
         if self.fade_mode == 'NONE':
             self.target_state = next_state
             self.fade_mode    = 'OUT'
@@ -227,9 +260,42 @@ class Game:
                 if self.fade_mode != 'NONE':
                     continue
 
-                if event.type == pygame.MOUSEBUTTONDOWN:
-                    mp = event.pos
-                    self._handle_click(mp, now)
+                # --- Scroll thành tựu (MOUSEWHEEL) ---
+                if event.type == pygame.MOUSEWHEEL and self.state == ACHIEVEMENTS:
+                    self._ach_scroll_vel -= event.y * 60
+
+                # --- Drag scroll thành tựu ---
+                if self.state == ACHIEVEMENTS:
+                    LIST_TOP = 105; LIST_H = HEIGHT - 175
+                    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                        mx, my = event.pos
+                        if LIST_TOP <= my <= LIST_TOP + LIST_H:
+                            self._ach_mouse_down   = True
+                            self._ach_drag_active  = False
+                            self._ach_drag_y       = my
+                            self._ach_drag_scroll0 = self._ach_scroll
+                            self._ach_scroll_vel   = 0.0
+                    if event.type == pygame.MOUSEMOTION and self._ach_mouse_down:
+                        dy = self._ach_drag_y - event.pos[1]
+                        if abs(dy) > 15 or self._ach_drag_active:  # Tăng ngưỡng lên 15px để tránh click nhầm drag
+                            self._ach_drag_active = True
+                            all_ach_list = ui.get_all_achievements(self.asset_manager.stats)
+                            max_s = max(0, len(all_ach_list) * 68 - LIST_H)
+                            self._ach_scroll = max(0.0, min(float(max_s),
+                                                   self._ach_drag_scroll0 + dy))
+                    if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+                        self._ach_mouse_down  = False
+                        # Delay reset drag active một chút để tránh click lọt vào cuối drag
+                        # Tuy nhiên trong pygame event loop thì reset ở UP là chuẩn nhất.
+                        self._ach_drag_active = False
+
+                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    # Chỉ bỏ qua nếu đang DRAG (không phải chỉ mouse_down)
+                    if self.state == ACHIEVEMENTS and self._ach_drag_active:
+                        pass
+                    else:
+                        mp = event.pos
+                        self._handle_click(mp, now)
 
                 if event.type == pygame.KEYDOWN:
                     self._handle_key(event.key)
@@ -237,6 +303,19 @@ class Game:
             # -------- Update --------
             if self.state == PLAYING:
                 self._update_playing(dt, now)
+
+            # --- Momentum scroll thành tựu ---
+            if self.state == ACHIEVEMENTS:
+                all_ach_list = ui.get_all_achievements(self.asset_manager.stats)
+                LIST_H = HEIGHT - 175
+                max_s = max(0, len(all_ach_list) * 68 - LIST_H)
+                if not self._ach_drag_active and abs(self._ach_scroll_vel) > 0.5:
+                    self._ach_scroll = max(0.0, min(float(max_s),
+                                           self._ach_scroll + self._ach_scroll_vel))
+                    self._ach_scroll_vel *= 0.82
+                else:
+                    if not self._ach_drag_active:
+                        self._ach_scroll_vel = 0.0
 
             # -------- Shake --------
             ox = oy = 0
@@ -294,6 +373,17 @@ class Game:
 
         # ---- LOBBY ----
         if state == LOBBY:
+            # Dialog xác nhận quit ưu tiên
+            if getattr(self, '_quit_confirm', False):
+                # YES
+                if pygame.Rect(WIDTH//2 - 105, HEIGHT//2 + 20, 90, 40).collidepoint(mp):
+                    self.asset_manager.save_stats()
+                    pygame.quit(); sys.exit()
+                # NO
+                if pygame.Rect(WIDTH//2 + 15, HEIGHT//2 + 20, 90, 40).collidepoint(mp):
+                    self._quit_confirm = False
+                return
+
             # Daily reward overlay takes priority
             if self.daily_reward_pending:
                 pw, ph = 320, 370
@@ -315,6 +405,8 @@ class Game:
             elif pygame.Rect(WIDTH//2-100, 400, 200, 50).collidepoint(mp): self.change_state(ACHIEVEMENTS)
             elif pygame.Rect(WIDTH//2-100, 470, 200, 50).collidepoint(mp):
                 self._settings_source = 'LOBBY'; self.change_state(SETTINGS)
+            elif pygame.Rect(WIDTH//2-100, 535, 200, 45).collidepoint(mp):
+                self._quit_confirm = True  # mở dialog xác nhận
 
         # ---- SETTINGS ----
         elif state == SETTINGS:
@@ -351,8 +443,47 @@ class Game:
 
         # ---- ACHIEVEMENTS ----
         elif state == ACHIEVEMENTS:
+            # Nếu vừa kéo chuột, bỏ qua click
+            if getattr(self, '_ach_drag_active', False):
+                return
+            # Nút BACK
             if pygame.Rect(WIDTH//2-55, HEIGHT-65, 110, 40).collidepoint(mp):
                 self.change_state(LOBBY)
+                return
+            # Vùng list
+            LIST_TOP = 105
+            LIST_H   = HEIGHT - 175
+            if not (LIST_TOP <= mp[1] <= LIST_TOP + LIST_H):
+                return
+            # Nút CLAIM từng thành tựu — hitbox rộng từ giữa màn hình sang phải
+            stats    = self.asset_manager.stats
+            unlocked = stats.get('unlocked_achievements', [])
+            claimed  = stats.setdefault('claimed_achievements', [])
+            all_ach  = ui.get_all_achievements(stats)
+            scroll   = int(self._ach_scroll)  # Dùng int để khớp hoàn toàn với tọa độ vẽ
+            row_h    = 68
+            y_base   = LIST_TOP - scroll
+            for ach in all_ach:
+                row_y   = y_base
+                y_base += row_h
+                # Bỏ qua item ngoài vùng nhìn
+                if row_y + row_h < LIST_TOP or row_y > LIST_TOP + LIST_H:
+                    continue
+                if not ach['unlocked']:
+                    continue
+                if ach['id'] in claimed:
+                    continue
+                # Hitbox cực rộng: từ x=150 đến hết màn hình, bao trùm toàn bộ nút CLAIM
+                claim_rect = pygame.Rect(150, int(row_y), WIDTH - 150, row_h)
+                if claim_rect.collidepoint(mp):
+                    claimed.append(ach['id'])
+                    stats['total_credits'] += ach.get('reward', 0)
+                    self.asset_manager.save_stats()
+                    ft = FloatingText(WIDTH // 2, HEIGHT // 2 - 60,
+                                      f"+{ach['reward']} HS!", GOLD, self.font)
+                    self.floating_texts.add(ft); self.all_sprites.add(ft)
+                    self.asset_manager.play_sound('collect') # Thêm tiếng kêu cho vui
+                    return
 
         # ---- PLAYING ----
         elif state == PLAYING:
@@ -552,12 +683,11 @@ class Game:
         self.missiles.update(cur_v)
         self.energy_balls.update(cur_v)
 
-        # Fire aura
         upgrades = self.asset_manager.stats.get('unlocked_upgrades', [])
-        if 'fire_aura' in upgrades and random.random() < 0.3:
-            p = Particle(self.bird.rect.centerx, self.bird.rect.centery,
-                         ORANGE if random.random() > 0.5 else RED)
-            self.all_sprites.add(p); self.particles.add(p)
+
+        # Boss invincible countdown
+        if self.boss_invincible_timer > 0:
+            self.boss_invincible_timer -= 1
 
         # Boss spawn
         if self.score > 0 and self.score % 50 == 0 and self._boss_spawned_score != self.score:
@@ -668,6 +798,7 @@ class Game:
 
         # Collisions (non-ghost, non-godmode)
         if not is_ghost and not self.god_mode:
+            has_boss_hearts = 'boss_hearts' in upgrades
             hazards = pygame.sprite.Group(
                 s for s in self.all_sprites
                 if (isinstance(s, Boss) and not self.boss_prep_active)
@@ -679,8 +810,16 @@ class Game:
                         if e.take_damage(): self._kill_boss()
                     else:
                         e.kill(); self.score += 1
-                else:
-                    self.handle_game_over(); return
+                elif has_boss_hearts and self.boss_fight and self.boss_invincible_timer <= 0:
+                    # Mất 1 tim, bất tử 1.5s
+                    self.boss_lives -= 1
+                    self.boss_invincible_timer = 90
+                    self.shake_timer = 25
+                    if self.boss_lives <= 0:
+                        self.handle_game_over(); return
+                elif not has_boss_hearts or not self.boss_fight:
+                    if self.boss_invincible_timer <= 0:
+                        self.handle_game_over(); return
 
             hit_tubes = pygame.sprite.spritecollide(self.bird, self.tubes, False, pygame.sprite.collide_mask)
             if hit_tubes:
@@ -699,6 +838,8 @@ class Game:
                     self.handle_game_over()
 
     def _kill_boss(self):
+        bx = self.boss_entity.rect.centerx if self.boss_entity else WIDTH - 80
+        by = self.boss_entity.rect.centery if self.boss_entity else HEIGHT // 2
         if self.boss_entity:
             self.boss_entity.kill()
         self.boss_fight = False
@@ -708,10 +849,11 @@ class Game:
         s['total_boss_kills'] = s.get('total_boss_kills', 0) + 1
         if 'LASER' in self.active_powerups:
             del self.active_powerups['LASER']
-        bx = self.boss_entity.rect.centerx if self.boss_entity else WIDTH - 80
-        by = self.boss_entity.rect.centery if self.boss_entity else HEIGHT // 2
         for _ in range(3):
             it   = random.choice(['LASER', 'GHOST', 'SLOW', 'GIANT'])
             item = Item(bx + random.randint(-20, 20), by + random.randint(-20, 20), it)
             self.items.add(item); self.all_sprites.add(item)
         self.boss_entity = None
+        # Reset boss lives cho lần boss tiếp theo
+        self.boss_lives            = 3
+        self.boss_invincible_timer = 0

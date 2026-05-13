@@ -91,8 +91,8 @@ UPGRADE_CATALOG = [
     {'id': 'longer_slow',   'name': 'Slow  +50% Duration', 'price': 80,  'btn_color': (120, 30,180)},
     {'id': 'longer_giant',  'name': 'Giant +50% Duration', 'price': 100, 'btn_color': (160, 80,  0)},
     {'section': 'SPECIAL UPGRADES'},
-    {'id': 'fire_aura',     'name': 'Fire Aura',           'price': 200, 'btn_color': (180, 60,  0)},
-    {'id': 'item_magnet',   'name': 'Item Magnet',         'price': 150, 'btn_color': (0,  160, 180)},
+    {'id': 'boss_hearts',   'name': 'Boss Shield (3 Hearts)', 'price': 200, 'btn_color': (180, 30, 30)},
+    {'id': 'item_magnet',   'name': 'Item Magnet',            'price': 150, 'btn_color': (0,  160, 180)},
 ]
 
 class Config:
